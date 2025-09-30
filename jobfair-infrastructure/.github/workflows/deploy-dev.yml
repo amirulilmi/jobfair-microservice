@@ -1,0 +1,52 @@
+name: Deploy Development Environment
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Infrastructure
+      uses: actions/checkout@v3
+      with:
+        path: jobfair-infrastructure
+    
+    - name: Checkout Auth Service
+      uses: actions/checkout@v3
+      with:
+        repository: your-org/jobfair-auth-service
+        path: jobfair-auth-service
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Checkout Company Service  
+      uses: actions/checkout@v3
+      with:
+        repository: your-org/jobfair-company-service
+        path: jobfair-company-service
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Checkout API Gateway
+      uses: actions/checkout@v3
+      with:
+        repository: your-org/jobfair-api-gateway
+        path: jobfair-api-gateway
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Deploy Development Environment
+      run: |
+        cd jobfair-infrastructure
+        docker-compose -f docker-compose/development.yml up --build -d
+        
+    - name: Health Check
+      run: |
+        sleep 60
+        curl -f http://localhost:8080/health
+        curl -f http://localhost:8081/health  
+        curl -f http://localhost:8000/health

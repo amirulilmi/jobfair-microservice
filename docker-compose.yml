@@ -1,0 +1,117 @@
+networks:
+  jobfair_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: jobfair_microservice_postgres_dev
+    environment:
+      POSTGRES_DB: jobfair
+      POSTGRES_USER: jobfair_user
+      POSTGRES_PASSWORD: jobfair_pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - jobfair_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobfair_user -d jobfair"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth-service:
+    build: 
+      context: ./jobfair-auth-service
+      dockerfile: Dockerfile
+    container_name: jobfair-auth-service
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://jobfair_user:jobfair_pass@postgres:5432/jobfair?sslmode=disable
+      JWT_SECRET: your-super-secret-jwt-key-for-development
+      PORT: 8080
+      GIN_MODE: debug
+    networks:
+      - jobfair_network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  company-service:
+    build: 
+      context: ./jobfair-company-service
+      dockerfile: Dockerfile
+    container_name: jobfair-company-service
+    ports:
+      - "8081:8080"
+    environment:
+      DATABASE_URL: postgres://jobfair_user:jobfair_pass@postgres:5432/jobfair?sslmode=disable
+      AUTH_SERVICE_URL: http://auth-service:8080
+      PORT: 8080
+      GIN_MODE: debug
+    networks:
+      - jobfair_network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  api-gateway:
+    build: 
+      context: ./jobfair-api-gateway
+      dockerfile: Dockerfile
+    container_name: jobfair-api-gateway
+    ports:
+      - "80:8080"
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8080
+      COMPANY_SERVICE_URL: http://company-service:8080
+      PORT: 8080
+      GIN_MODE: debug
+    networks:
+      - jobfair_network
+    depends_on:
+      - auth-service
+      - company-service
+    restart: unless-stopped
+
+  # Migration service for auth
+  auth-migration:
+    image: migrate/migrate:latest
+    container_name: jobfair_auth_migration
+    volumes:
+      - ./jobfair-auth-service/migrations:/migrations
+    command: [
+      "-path", "/migrations",
+      "-database", "postgres://jobfair_user:jobfair_pass@postgres:5432/jobfair?sslmode=disable",
+      "up"
+    ]
+    networks:
+      - jobfair_network
+    depends_on:
+      - postgres
+    restart: "no"
+
+  # Migration service for company
+  company-migration:
+    image: migrate/migrate:latest
+    container_name: jobfair_company_migration
+    volumes:
+      - ./jobfair-company-service/migrations:/migrations
+    command: [
+      "-path", "/migrations",
+      "-database", "postgres://jobfair_user:jobfair_pass@postgres:5432/jobfair?sslmode=disable",
+      "up"
+    ]
+    networks:
+      - jobfair_network
+    depends_on:
+      - postgres
+    restart: "no"
+

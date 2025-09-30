@@ -1,0 +1,35 @@
+# File: docker-compose.dev.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: jobfair_company_service_postgres_dev
+    environment:
+      POSTGRES_DB: jobfair
+      POSTGRES_USER: jobfair_user
+      POSTGRES_PASSWORD: jobfair_pass
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+
+  auth-service:
+    build: 
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: jobfair_auth_dev
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://jobfair_user:jobfair_pass@postgres:5432/jobfair?sslmode=disable
+      JWT_SECRET: your-super-secret-jwt-key-for-development
+      PORT: 8080
+      GIN_MODE: debug
+    depends_on:
+      - postgres
+    volumes:
+      - ./services/auth-service:/app  # For hot reload
+    
+volumes:
+  postgres_dev_data:
