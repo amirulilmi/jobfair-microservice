@@ -14,7 +14,20 @@ func NewJobSeekerProfileRepository(db *gorm.DB) *JobSeekerProfileRepository {
 	return &JobSeekerProfileRepository{db: db}
 }
 
+// ✅ Tambahkan helper untuk membersihkan string kosong
+func sanitizeProfile(profile *models.JobSeekerProfile) {
+	if profile.EmploymentStatus == "" {
+		profile.EmploymentStatus = "" // biarkan kosong jika kolom tidak ada constraint ketat
+	}
+
+	// ✅ Kalau kosong, ubah ke nilai default NULL agar tidak melanggar constraint
+	if profile.JobSearchStatus == "" {
+		profile.JobSearchStatus = "" // bisa juga nil kalau kamu pakai pointer *string di model
+	}
+}
+
 func (r *JobSeekerProfileRepository) Create(profile *models.JobSeekerProfile) error {
+	sanitizeProfile(profile) // ✅ pastikan sebelum insert, sudah bersih
 	return r.db.Create(profile).Error
 }
 
@@ -27,6 +40,7 @@ func (r *JobSeekerProfileRepository) GetByUserID(userID uint) (*models.JobSeeker
 }
 
 func (r *JobSeekerProfileRepository) Update(profile *models.JobSeekerProfile) error {
+	sanitizeProfile(profile) // ✅ pastikan sebelum update juga bersih
 	return r.db.Save(profile).Error
 }
 

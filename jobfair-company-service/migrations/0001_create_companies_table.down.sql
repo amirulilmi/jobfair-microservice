@@ -1,6 +1,9 @@
 -- Drop trigger
 DROP TRIGGER IF EXISTS update_companies_updated_at ON companies;
 
+-- Drop function
+DROP FUNCTION IF EXISTS update_updated_at_column;
+
 -- Drop indexes
 DROP INDEX IF EXISTS idx_companies_user_id;
 DROP INDEX IF EXISTS idx_companies_name;

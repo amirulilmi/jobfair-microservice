@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS job_seeker_profiles (
     -- Employment Information
     current_job_title VARCHAR(255),
     current_company VARCHAR(255),
-    employment_status VARCHAR(50) CHECK (employment_status IN ('student', 'employed', 'self_employed', 'unemployed')),
-    job_search_status VARCHAR(50) CHECK (job_search_status IN ('actively_looking', 'open_to_opportunities', 'not_looking')),
+    employment_status VARCHAR(50) ,
+    job_search_status VARCHAR(50),
     
     -- Job Preferences (PostgreSQL Arrays)
     desired_positions TEXT[],
@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS job_seeker_profiles (
     -- Unique constraint
     CONSTRAINT job_seeker_profiles_user_id_unique UNIQUE (user_id)
 );
+
 
 -- Create indexes
 CREATE INDEX idx_job_seeker_profiles_user_id ON job_seeker_profiles(user_id);

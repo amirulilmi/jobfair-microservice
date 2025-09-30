@@ -1,9 +1,14 @@
+// File: internal/services/registration_service.go
 package services
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
+	"os"
 	"time"
 
 	"jobfair-auth-service/internal/models"
@@ -12,23 +17,33 @@ import (
 )
 
 type RegistrationService struct {
-	userRepo    *repository.UserRepository
-	profileRepo *repository.JobSeekerProfileRepository
-	otpRepo     *repository.OTPRepository
-	jwtSecret   string
+	userRepo           *repository.UserRepository
+	profileRepo        *repository.JobSeekerProfileRepository
+	companyProfileRepo *repository.CompanyBasicProfileRepository
+	otpRepo            *repository.OTPRepository
+	jwtSecret          string
+	companyServiceURL  string
 }
 
 func NewRegistrationService(
 	userRepo *repository.UserRepository,
 	profileRepo *repository.JobSeekerProfileRepository,
+	companyProfileRepo *repository.CompanyBasicProfileRepository,
 	otpRepo *repository.OTPRepository,
 	jwtSecret string,
 ) *RegistrationService {
+	companyServiceURL := os.Getenv("COMPANY_SERVICE_URL")
+	if companyServiceURL == "" {
+		companyServiceURL = "http://localhost:8081" // default
+	}
+
 	return &RegistrationService{
-		userRepo:    userRepo,
-		profileRepo: profileRepo,
-		otpRepo:     otpRepo,
-		jwtSecret:   jwtSecret,
+		userRepo:           userRepo,
+		profileRepo:        profileRepo,
+		companyProfileRepo: companyProfileRepo,
+		otpRepo:            otpRepo,
+		jwtSecret:          jwtSecret,
+		companyServiceURL:  companyServiceURL,
 	}
 }
 
@@ -72,17 +87,22 @@ func (s *RegistrationService) RegisterStep1(req *models.RegisterStep1Request) (*
 	return &models.RegisterStep1Response{
 		UserID:       createdUser.ID,
 		Email:        createdUser.Email,
+		UserType:     createdUser.UserType,
 		NextStep:     "complete_profile",
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}, nil
 }
 
-// Step 2: Complete Basic Profile
-func (s *RegistrationService) CompleteBasicProfile(userID uint, req *models.RegisterStep2Request) (*models.BasicProfileData, error) {
+// Step 2: Complete Basic Profile (Job Seeker)
+func (s *RegistrationService) CompleteBasicProfileJobSeeker(userID uint, req *models.RegisterStep2JobSeekerRequest) (*models.BasicProfileData, error) {
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return nil, errors.New("user not found")
+	}
+
+	if user.UserType != models.UserTypeJobSeeker {
+		return nil, errors.New("this endpoint is only for job seekers")
 	}
 
 	if req.PhoneNumber != "" {
@@ -110,6 +130,68 @@ func (s *RegistrationService) CompleteBasicProfile(userID uint, req *models.Regi
 		PhoneNumber: user.PhoneNumber,
 		CountryCode: user.CountryCode,
 		Country:     user.Country,
+	}, nil
+}
+
+// Step 2: Complete Basic Profile (Company)
+func (s *RegistrationService) CompleteBasicProfileCompany(userID uint, req *models.RegisterStep2CompanyRequest) (*models.BasicProfileData, error) {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, errors.New("user not found")
+	}
+
+	if user.UserType != models.UserTypeCompany {
+		return nil, errors.New("this endpoint is only for companies")
+	}
+
+	if req.PhoneNumber != "" {
+		existingUser, _ := s.userRepo.GetByPhoneNumber(req.PhoneNumber)
+		if existingUser != nil && existingUser.ID != userID {
+			return nil, errors.New("phone number already registered")
+		}
+	}
+
+	// Save to company_basic_profiles table
+	profile, _ := s.companyProfileRepo.GetByUserID(userID)
+	if profile == nil {
+		profile = &models.CompanyBasicProfile{
+			UserID: userID,
+		}
+	}
+
+	profile.CompanyName = req.CompanyName
+	profile.Industry = req.Industry
+	profile.PhoneNumber = req.PhoneNumber
+	profile.Address = req.Address
+	profile.Website = req.Website
+
+	if profile.ID == 0 {
+		if err := s.companyProfileRepo.Create(profile); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.companyProfileRepo.Update(profile); err != nil {
+			return nil, err
+		}
+	}
+
+	// Update user table
+	if req.PhoneNumber != "" {
+		user.PhoneNumber = &req.PhoneNumber
+	}
+	user.CountryCode = req.CountryCode
+
+	if err := s.userRepo.Update(user); err != nil {
+		return nil, err
+	}
+
+	return &models.BasicProfileData{
+		CompanyName: profile.CompanyName,
+		Industry:    profile.Industry,
+		PhoneNumber: user.PhoneNumber,
+		CountryCode: user.CountryCode,
+		Address:     profile.Address,
+		Website:     profile.Website,
 	}, nil
 }
 
@@ -159,6 +241,21 @@ func (s *RegistrationService) VerifyPhoneOTP(req *models.VerifyOTPRequest) (*mod
 			return nil, err
 		}
 
+		// Return appropriate data based on user type
+		if user.UserType == models.UserTypeCompany {
+			companyProfile, _ := s.companyProfileRepo.GetByUserID(user.ID)
+			if companyProfile != nil {
+				return &models.BasicProfileData{
+					CompanyName: companyProfile.CompanyName,
+					Industry:    companyProfile.Industry,
+					PhoneNumber: user.PhoneNumber,
+					CountryCode: user.CountryCode,
+					Address:     companyProfile.Address,
+					Website:     companyProfile.Website,
+				}, nil
+			}
+		}
+
 		return &models.BasicProfileData{
 			FirstName:   user.FirstName,
 			LastName:    user.LastName,
@@ -199,6 +296,21 @@ func (s *RegistrationService) VerifyPhoneOTP(req *models.VerifyOTPRequest) (*mod
 		return nil, err
 	}
 
+	// Return appropriate data based on user type
+	if user.UserType == models.UserTypeCompany {
+		companyProfile, _ := s.companyProfileRepo.GetByUserID(user.ID)
+		if companyProfile != nil {
+			return &models.BasicProfileData{
+				CompanyName: companyProfile.CompanyName,
+				Industry:    companyProfile.Industry,
+				PhoneNumber: user.PhoneNumber,
+				CountryCode: user.CountryCode,
+				Address:     companyProfile.Address,
+				Website:     companyProfile.Website,
+			}, nil
+		}
+	}
+
 	return &models.BasicProfileData{
 		FirstName:   user.FirstName,
 		LastName:    user.LastName,
@@ -208,8 +320,8 @@ func (s *RegistrationService) VerifyPhoneOTP(req *models.VerifyOTPRequest) (*mod
 	}, nil
 }
 
-// Step 5: Set Employment Status
-func (s *RegistrationService) SetEmploymentStatus(userID uint, req *models.JobSeekerStep1Request) (*models.JobPreferencesData, error) {
+// Step 5: Set Employment Status (Job Seeker Only)
+func (s *RegistrationService) SetEmploymentStatus(userID uint, req *models.JobSeekerStep1Request) (*models.EmploymentData, error) {
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return nil, errors.New("user not found")
@@ -238,15 +350,14 @@ func (s *RegistrationService) SetEmploymentStatus(userID uint, req *models.JobSe
 		}
 	}
 
-	return &models.JobPreferencesData{
-		JobSearchStatus:    string(profile.JobSearchStatus),
-		DesiredPositions:   profile.DesiredPositions,
-		PreferredLocations: profile.PreferredLocations,
-		JobTypes:           profile.JobTypes,
+	return &models.EmploymentData{
+		EmploymentStatus: string(profile.EmploymentStatus),
+		CurrentJobTitle:  profile.CurrentJobTitle,
+		CurrentCompany:   profile.CurrentCompany,
 	}, nil
 }
 
-// Step 6: Set Job Preferences
+// Step 6: Set Job Preferences (Job Seeker Only)
 func (s *RegistrationService) SetJobPreferences(userID uint, req *models.JobSeekerStep2Request) (*models.JobPreferencesData, error) {
 	profile, err := s.profileRepo.GetByUserID(userID)
 	if err != nil {
@@ -270,7 +381,7 @@ func (s *RegistrationService) SetJobPreferences(userID uint, req *models.JobSeek
 	}, nil
 }
 
-// Step 7: Set Permissions
+// Step 7: Set Permissions (Job Seeker Only)
 func (s *RegistrationService) SetPermissions(userID uint, req *models.PermissionsRequest) (*models.JobPreferencesData, error) {
 	profile, err := s.profileRepo.GetByUserID(userID)
 	if err != nil {
@@ -292,7 +403,7 @@ func (s *RegistrationService) SetPermissions(userID uint, req *models.Permission
 	}, nil
 }
 
-// Step 8: Upload Profile Photo
+// Step 8: Upload Profile Photo/Logo (Unified)
 func (s *RegistrationService) UploadProfilePhoto(userID uint, photoURL string) (*models.ProfilePhotoData, error) {
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
@@ -306,11 +417,77 @@ func (s *RegistrationService) UploadProfilePhoto(userID uint, photoURL string) (
 		return nil, err
 	}
 
+	// If company, also update company_basic_profiles
+	if user.UserType == models.UserTypeCompany {
+		companyProfile, _ := s.companyProfileRepo.GetByUserID(userID)
+		if companyProfile != nil {
+			companyProfile.LogoURL = photoURL
+			s.companyProfileRepo.Update(companyProfile)
+		}
+
+		// Send company data to company service
+		if err := s.createCompanyInCompanyService(user, companyProfile); err != nil {
+			fmt.Printf("Warning: Failed to create company in company service: %v\n", err)
+		}
+	}
+
 	return &models.ProfilePhotoData{PhotoURL: photoURL}, nil
+}
+
+// Helper: Create company record in company service
+func (s *RegistrationService) createCompanyInCompanyService(user *models.User, profile *models.CompanyBasicProfile) error {
+	if profile == nil {
+		return errors.New("company profile not found")
+	}
+
+	payload := map[string]interface{}{
+		"user_id":      user.ID,
+		"name":         profile.CompanyName,
+		"email":        user.Email,
+		"phone":        profile.PhoneNumber,
+		"website":      profile.Website,
+		"industry":     profile.Industry,
+		"address":      profile.Address,
+		"logo_url":     profile.LogoURL,
+		"country_code": user.CountryCode,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("%s/api/v1/companies", s.companyServiceURL)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	// You can add authorization header if needed
+	// req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("company service returned status: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // Helper: Generate OTP
 func (s *RegistrationService) generateOTP() string {
 	rand.Seed(time.Now().UnixNano())
 	return fmt.Sprintf("%06d", rand.Intn(1000000))
+}
+
+// Helper: Get User By ID
+func (s *RegistrationService) GetUserByID(userID uint) (*models.User, error) {
+	return s.userRepo.GetByID(userID)
 }

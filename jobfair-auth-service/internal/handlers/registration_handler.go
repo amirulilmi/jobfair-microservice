@@ -1,3 +1,4 @@
+// File: internal/handlers/registration_handler.go
 package handlers
 
 import (
@@ -35,16 +36,40 @@ func (h *RegistrationHandler) RegisterStep1(c *gin.Context) {
 	c.JSON(http.StatusCreated, models.APIResponse{Data: data, Message: "Registration step 1 completed", Success: true})
 }
 
+// Unified endpoint for completing basic profile (detects user type automatically)
 func (h *RegistrationHandler) CompleteBasicProfile(c *gin.Context) {
 	userID := c.GetUint("user_id")
 
-	var req models.RegisterStep2Request
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
+	// Get user to check type
+	user, err := h.registrationService.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "User not found"})
 		return
 	}
 
-	data, err := h.registrationService.CompleteBasicProfile(userID, &req)
+	var data *models.BasicProfileData
+
+	if user.UserType == models.UserTypeJobSeeker {
+		var req models.RegisterStep2JobSeekerRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
+			return
+		}
+
+		data, err = h.registrationService.CompleteBasicProfileJobSeeker(userID, &req)
+	} else if user.UserType == models.UserTypeCompany {
+		var req models.RegisterStep2CompanyRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
+			return
+		}
+
+		data, err = h.registrationService.CompleteBasicProfileCompany(userID, &req)
+	} else {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Invalid user type"})
+		return
+	}
+
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
 		return
@@ -141,6 +166,7 @@ func (h *RegistrationHandler) SetPermissions(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Data: data, Message: "Permissions updated", Success: true})
 }
 
+// Unified endpoint for uploading profile photo/logo
 func (h *RegistrationHandler) UploadProfilePhoto(c *gin.Context) {
 	userID := c.GetUint("user_id")
 
@@ -155,7 +181,19 @@ func (h *RegistrationHandler) UploadProfilePhoto(c *gin.Context) {
 		return
 	}
 
-	photoURL := fmt.Sprintf("/uploads/profiles/%d_%d.jpg", userID, time.Now().Unix())
+	// Get user to determine file naming
+	user, err := h.registrationService.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "User not found"})
+		return
+	}
+
+	var photoURL string
+	if user.UserType == models.UserTypeCompany {
+		photoURL = fmt.Sprintf("/uploads/companies/logos/%d_%d.jpg", userID, time.Now().Unix())
+	} else {
+		photoURL = fmt.Sprintf("/uploads/profiles/%d_%d.jpg", userID, time.Now().Unix())
+	}
 
 	data, err := h.registrationService.UploadProfilePhoto(userID, photoURL)
 	if err != nil {
@@ -163,5 +201,10 @@ func (h *RegistrationHandler) UploadProfilePhoto(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{Data: data, Message: "Profile photo uploaded", Success: true})
+	message := "Profile photo uploaded"
+	if user.UserType == models.UserTypeCompany {
+		message = "Company logo uploaded"
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{Data: data, Message: message, Success: true})
 }

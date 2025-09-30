@@ -40,7 +40,7 @@ type User struct {
 	// Basic Profile
 	FirstName    string  `json:"first_name"`
 	LastName     string  `json:"last_name"`
-	PhoneNumber  *string `json:"phone_number" gorm:"index:idx_phone_unique,unique,where:phone_number IS NOT NULL"` // ✅ Changed to pointer
+	PhoneNumber  *string `json:"phone_number" gorm:"index:idx_phone_unique,unique,where:phone_number IS NOT NULL"`
 	CountryCode  string  `json:"country_code" gorm:"default:'+62'"`
 	Country      string  `json:"country"`
 	ProfilePhoto string  `json:"profile_photo"`
@@ -85,13 +85,27 @@ type JobSeekerProfile struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Company Basic Profile (stored in auth service)
+type CompanyBasicProfile struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	UserID      uint      `json:"user_id" gorm:"uniqueIndex;not null"`
+	CompanyName string    `json:"company_name" gorm:"not null"`
+	Industry    string    `json:"industry"`
+	PhoneNumber string    `json:"phone_number"`
+	Address     string    `json:"address"`
+	Website     string    `json:"website"`
+	LogoURL     string    `json:"logo_url"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // OTP Verification
 type OTPVerification struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
 	UserID      uint      `json:"user_id" gorm:"not null"`
 	PhoneNumber string    `json:"phone_number" gorm:"not null"`
 	OTPCode     string    `json:"-" gorm:"not null"`
-	Purpose     string    `json:"purpose"` // phone_verification, password_reset
+	Purpose     string    `json:"purpose"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	IsUsed      bool      `json:"is_used" gorm:"default:false"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -125,13 +139,23 @@ type RegisterStep1Request struct {
 	UserType UserType `json:"user_type" binding:"required,oneof=job_seeker company"`
 }
 
-// Step 2: Basic Profile Setup
-type RegisterStep2Request struct {
-	FirstName   string `json:"first_name" binding:"required"`
-	LastName    string `json:"last_name" binding:"required"`
-	PhoneNumber string `json:"phone_number" binding:"required"`
-	CountryCode string `json:"country_code" binding:"required"`
-	Country     string `json:"country" binding:"required"`
+// Step 2: Basic Profile Setup - JOB SEEKER
+type RegisterStep2JobSeekerRequest struct {
+	FirstName   string `json:"first_name""`
+	LastName    string `json:"last_name""`
+	PhoneNumber string `json:"phone_number""`
+	CountryCode string `json:"country_code""`
+	Country     string `json:"country""`
+}
+
+// Step 2: Basic Profile Setup - COMPANY
+type RegisterStep2CompanyRequest struct {
+	CompanyName string `json:"company_name""`
+	Industry    string `json:"industry""`
+	PhoneNumber string `json:"phone_number""`
+	CountryCode string `json:"country_code""`
+	Address     string `json:"address""`
+	Website     string `json:"website"`
 }
 
 // Step 3: Phone Verification
@@ -146,17 +170,17 @@ type VerifyOTPRequest struct {
 
 // Step 4: Job Seeker - Employment Status
 type JobSeekerStep1Request struct {
-	EmploymentStatus EmploymentStatus `json:"employment_status" binding:"required"`
+	EmploymentStatus EmploymentStatus `json:"employment_status""`
 	CurrentJobTitle  string           `json:"current_job_title"`
 	CurrentCompany   string           `json:"current_company"`
 }
 
 // Step 5: Job Seeker - Job Preferences
 type JobSeekerStep2Request struct {
-	JobSearchStatus    JobSearchStatus `json:"job_search_status" binding:"required"`
-	DesiredPositions   []string        `json:"desired_positions" binding:"required,min=1"`
-	PreferredLocations []string        `json:"preferred_locations" binding:"required,min=1"`
-	JobTypes           []string        `json:"job_types" binding:"required,min=1"`
+	JobSearchStatus    JobSearchStatus `json:"job_search_status" "`
+	DesiredPositions   []string        `json:"desired_positions" "`
+	PreferredLocations []string        `json:"preferred_locations" "`
+	JobTypes           []string        `json:"job_types" "`
 }
 
 // Step 6: Notification & Location Permissions
@@ -165,17 +189,27 @@ type PermissionsRequest struct {
 	LocationEnabled      bool `json:"location_enabled"`
 }
 
-// Step 7: Profile Photo Upload
+// Step 7: Profile Photo/Logo Upload
 type ProfilePhotoUploadResponse struct {
 	PhotoURL string `json:"photo_url"`
 }
 
 type BasicProfileData struct {
-	FirstName   string  `json:"first_name"`
-	LastName    string  `json:"last_name"`
+	FirstName   string  `json:"first_name,omitempty"`
+	LastName    string  `json:"last_name,omitempty"`
+	CompanyName string  `json:"company_name,omitempty"`
+	Industry    string  `json:"industry,omitempty"`
 	PhoneNumber *string `json:"phone_number,omitempty"`
-	CountryCode string  `json:"country_code"`
-	Country     string  `json:"country"`
+	CountryCode string  `json:"country_code,omitempty"`
+	Country     string  `json:"country,omitempty"`
+	Address     string  `json:"address,omitempty"`
+	Website     string  `json:"website,omitempty"`
+}
+
+type EmploymentData struct {
+    EmploymentStatus string `json:"employment_status"`
+    CurrentJobTitle  string `json:"current_job_title,omitempty"`
+    CurrentCompany   string `json:"current_company,omitempty"`
 }
 
 type JobPreferencesData struct {
@@ -187,8 +221,8 @@ type JobPreferencesData struct {
 
 type OTPSentData struct {
 	PhoneNumber string `json:"phone_number"`
-	OTPCode     string `json:"otp_code,omitempty"` // hanya dev
-	ExpiresAt   int64  `json:"expires_at"`         // timestamp
+	OTPCode     string `json:"otp_code,omitempty"`
+	ExpiresAt   int64  `json:"expires_at"`
 }
 
 type ProfilePhotoData struct {
@@ -197,15 +231,16 @@ type ProfilePhotoData struct {
 
 // Responses
 type RegisterStep1Response struct {
-	UserID       uint   `json:"user_id"`
-	Email        string `json:"email"`
-	NextStep     string `json:"next_step"`
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	UserID       uint     `json:"user_id"`
+	Email        string   `json:"email"`
+	UserType     UserType `json:"user_type"`
+	NextStep     string   `json:"next_step"`
+	AccessToken  string   `json:"access_token"`
+	RefreshToken string   `json:"refresh_token"`
 }
 
 type OTPSentResponse struct {
-	ExpiresIn int `json:"expires_in"` // seconds
+	ExpiresIn int `json:"expires_in"`
 }
 
 type ProfileSetupResponse struct {
