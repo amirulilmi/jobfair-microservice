@@ -92,7 +92,7 @@ func (h *ApplicationHandler) GetApplicationsByJobID(c *gin.Context) {
 		return
 	}
 
-	jobID, err := strconv.ParseUint(c.Param("job_id"), 10, 32)
+	jobID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid job ID", "INVALID_ID", nil))
 		return

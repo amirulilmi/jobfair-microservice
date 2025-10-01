@@ -81,12 +81,26 @@ func main() {
 		{
 			public.GET("/companies", companyHandler.ListCompanies)
 			public.GET("/companies/:id", companyHandler.GetCompany)
-			public.GET("/jobs/:id", jobHandler.GetJob)
+			// public.GET("/jobs/:id", jobHandler.GetJob)
 		}
 
 		protected := api.Group("")
 		protected.Use(jwtMiddleware)
 		{
+			jobs := protected.Group("/jobs")
+			{
+				jobs.GET("", jobHandler.ListJobs)
+				jobs.POST("", jobHandler.CreateJob)
+				jobs.GET("/:id", jobHandler.GetJob)
+				jobs.PUT("/:id", jobHandler.UpdateJob)
+				jobs.DELETE("/:id", jobHandler.DeleteJob)
+				jobs.POST("/:id/publish", jobHandler.PublishJob)
+				jobs.POST("/:id/close", jobHandler.CloseJob)
+
+				// Aplikasi untuk job tertentu
+				jobs.GET("/:id/applications", applicationHandler.GetApplicationsByJobID)
+			}
+
 			protected.GET("/my-company", companyHandler.GetMyCompany)
 			protected.POST("/companies", companyHandler.CreateCompany)
 			protected.PUT("/companies/:id", companyHandler.UpdateCompany)
@@ -99,19 +113,20 @@ func main() {
 			protected.GET("/companies/:id/analytics", companyHandler.GetAnalytics)
 			protected.GET("/dashboard", companyHandler.GetDashboard)
 
-			protected.POST("/jobs", jobHandler.CreateJob)
-			protected.GET("/jobs", jobHandler.ListJobs)
-			protected.PUT("/jobs/:id", jobHandler.UpdateJob)
-			protected.DELETE("/jobs/:id", jobHandler.DeleteJob)
-			protected.POST("/jobs/:id/publish", jobHandler.PublishJob)
-			protected.POST("/jobs/:id/close", jobHandler.CloseJob)
+			// protected.POST("/jobs", jobHandler.CreateJob)
+			// protected.GET("/jobs", jobHandler.ListJobs)
+			// protected.PUT("/jobs/:id", jobHandler.UpdateJob)
+			// protected.DELETE("/jobs/:id", jobHandler.DeleteJob)
+			// protected.POST("/jobs/:id/publish", jobHandler.PublishJob)
+			// protected.POST("/jobs/:id/close", jobHandler.CloseJob)
 
 			protected.GET("/applications", applicationHandler.ListApplications)
 			protected.GET("/applications/:id", applicationHandler.GetApplication)
-			protected.GET("/jobs/:job_id/applications", applicationHandler.GetApplicationsByJobID)
+			// protected.GET("/jobs/:job_id/applications", applicationHandler.GetApplicationsByJobID)
 			protected.PUT("/applications/:id/status", applicationHandler.UpdateApplicationStatus)
 			protected.GET("/applications/stats", applicationHandler.GetApplicationStats)
 		}
+
 	}
 
 	port := os.Getenv("PORT")
